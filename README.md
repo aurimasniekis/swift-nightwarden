@@ -35,7 +35,8 @@ macOS never tells you this has happened. Nightwarden does. It watches a short li
 - **Click-only restarts.** Your own processes get `SIGTERM`, then `SIGKILL` if needed. System daemons go through the standard macOS administrator prompt. Nightwarden then waits for launchd to respawn the process and tells you how much memory came back.
 - **Metrics history.** A dashboard with 24-hour sparklines, CPU and memory charts over 1 hour to 30 days, threshold lines, and markers for flags, restarts and crashes.
 - **Rules for each service.** The default is ≥ 80% CPU for 10 minutes or more memory than a set limit. You can override it for any service in Settings.
-- **Light on resources.** One `ps` call every 30 seconds. A SQLite history of a few MB. No network access, no telemetry, and no privileged helper.
+- **Light on resources.** One `ps` call every 30 seconds. A SQLite history of a few MB. No telemetry and no privileged helper.
+- **Keeps itself current.** A once-a-day check of GitHub Releases, which you can switch off. When a newer version exists, Nightwarden offers the download with its release notes.
 - **Safe by design.** `WindowServer`, `kernel_task` and `cfprefsd` can never be restarted, and the PID is checked again right before any kill.
 
 <table>
@@ -52,12 +53,12 @@ macOS never tells you this has happened. Nightwarden does. It watches a short li
 
 ### Download
 
-1. Download the latest `Nightwarden-x.y.z.zip` from [**Releases**](https://github.com/aurimasniekis/swift-nightwarden/releases) and move `Nightwarden.app` to `/Applications`.
+1. Download the latest `Nightwarden-x.y.z.dmg` from [**Releases**](https://github.com/aurimasniekis/swift-nightwarden/releases), open it, and drag **Nightwarden** onto **Applications**. A `.zip` is attached too.
 2. The app is ad-hoc signed, not notarized. On first launch, **right-click it → Open**, or clear the quarantine flag:
    ```sh
    xattr -dr com.apple.quarantine /Applications/Nightwarden.app
    ```
-3. To start it at login, add it in **System Settings → General → Login Items**.
+3. To start it at login, turn on **Settings → Open at login**.
 
 ### Build from source
 
@@ -133,7 +134,7 @@ Everything is set in the app, and changes apply on the next check. Under the hoo
 | Settings | `~/Library/Application Support/Nightwarden/config.json` |
 | Metrics | `~/Library/Application Support/Nightwarden/metrics.sqlite` |
 
-Metrics keep raw samples for 48 hours, 5-minute averages for 30 days and events for 180 days, which comes to a few MB. Nothing leaves your Mac.
+Metrics keep raw samples for 48 hours, 5-minute averages for 30 days and events for 180 days, which comes to a few MB. Nothing about your Mac leaves it. The only network request is the optional daily update check, which asks GitHub's public releases API for the latest version number.
 
 For scripting and testing:
 
@@ -162,6 +163,9 @@ macOS only shows PID 0 to root. Nightwarden estimates it as total CPU in use min
 **Why does the password prompt mention `osascript`?**
 Root daemons are restarted with AppleScript's `do shell script … with administrator privileges`, run in a separate helper process so the app never freezes behind the dialog. The prompt's text says what Nightwarden is about to restart.
 
+**Does it connect to the internet?**
+Only for the update check: once a day, a single request to `api.github.com` for the latest release. The request carries nothing but Nightwarden's version number, in its User-Agent header. Turn it off in **Settings → Updates**, and nothing goes over the network at all.
+
 **How do I uninstall it?**
 If you used `make install`, run `make uninstall`; it keeps your settings and history. `make purge` removes those too. Otherwise, quit the app, delete it, and delete `~/Library/Application Support/Nightwarden`.
 
@@ -171,7 +175,8 @@ If you used `make install`, run `make uninstall`; it keeps your settings and his
 make          # build build/Nightwarden.app (ad-hoc signed)
 make test     # unit tests (swift-testing)
 make run      # build and open
-make dist     # zipped app + SHA-256, e.g. make dist VERSION=1.2.3
+make dmg      # drag-to-Applications disk image (installs dmgbuild into build/venv)
+make dist     # .dmg + .zip with SHA-256 checksums, e.g. make dist VERSION=1.2.3
 make icon     # re-render Resources/AppIcon.icns from Resources/AppIcon.swift
 make clean
 ```
@@ -181,9 +186,9 @@ make clean
 | `Sources/NightwardenCore` | Pure logic: `ps` parsing, CPU sampling, the stuck detector, config, SQLite metrics. Fully unit-tested. |
 | `Sources/Nightwarden` | The AppKit + SwiftUI app: menu bar, notifications, restarts, dashboard. |
 | `Tests/NightwardenCoreTests` | Parser, sampler, detector, metrics store and formatting tests. |
-| `Resources` | `Info.plist`, LaunchAgent template, app icon. |
+| `Resources` | `Info.plist`, LaunchAgent template, app icon and disk-image background (both drawn in Swift), `dmgbuild` settings. |
 
-CI builds and tests every push and pull request. To release, push a tag such as `v1.2.3`; the release workflow builds the app and attaches the zip and its checksum to a GitHub release.
+CI builds and tests every push and pull request. To release, push a tag such as `v1.2.3`. The release workflow builds the app and attaches the `.dmg`, the `.zip` and their checksums to a GitHub release. The version comes from the tag, and the build number is the commit count.
 
 ## License
 
