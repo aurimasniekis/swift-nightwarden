@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build & test
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: Test
+        run: make test
+
+      - name: Build app
+        run: make dist VERSION="$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)-${GITHUB_SHA::7}"
+
+      - name: Smoke test
+        run: build/Nightwarden.app/Contents/MacOS/Nightwarden --print
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nightwarden-${{ github.sha }}
+          path: build/Nightwarden-*.zip
+          if-no-files-found: error
