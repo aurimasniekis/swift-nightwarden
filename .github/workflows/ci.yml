@@ -19,6 +19,8 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history: the build number is the commit count
 
       - name: Toolchain
         run: |
@@ -37,5 +39,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Nightwarden-${{ github.sha }}
-          path: build/Nightwarden-*.zip
+          path: |
+            build/Nightwarden-*.dmg
+            build/Nightwarden-*.zip
           if-no-files-found: error
