@@ -61,6 +61,8 @@ public struct Config: Codable, Equatable, Sendable {
     public var defaultCPUMinutes: Double = 10
     public var renotifyMinutes: Double = 60
     public var pausedUntil: Date?
+    /// Daily check of GitHub releases for a newer version.
+    public var checkForUpdates = true
     public var services: [ServiceConfig] = Config.defaultServices
 
     public static let protectedServices: Set<String> = ["WindowServer", "kernel_task", "cfprefsd"]
@@ -88,7 +90,7 @@ public struct Config: Codable, Equatable, Sendable {
     public init() {}
 
     enum CodingKeys: String, CodingKey {
-        case pollSeconds, defaultCPUPercent, defaultCPUMinutes, renotifyMinutes, pausedUntil, services
+        case pollSeconds, defaultCPUPercent, defaultCPUMinutes, renotifyMinutes, pausedUntil, checkForUpdates, services
     }
 
     public init(from decoder: Decoder) throws {
@@ -98,6 +100,7 @@ public struct Config: Codable, Equatable, Sendable {
         defaultCPUMinutes = try c.decodeIfPresent(Double.self, forKey: .defaultCPUMinutes) ?? defaultCPUMinutes
         renotifyMinutes = try c.decodeIfPresent(Double.self, forKey: .renotifyMinutes) ?? renotifyMinutes
         pausedUntil = try c.decodeIfPresent(Date.self, forKey: .pausedUntil)
+        checkForUpdates = try c.decodeIfPresent(Bool.self, forKey: .checkForUpdates) ?? checkForUpdates
         services = try c.decodeIfPresent([ServiceConfig].self, forKey: .services) ?? services
     }
 

@@ -174,6 +174,7 @@ import Testing
         #expect(config.pollSeconds == 10)
         #expect(config.defaultCPUPercent == 80)
         #expect(config.services[0].enabled)
+        #expect(config.checkForUpdates)
     }
 
     @Test func protectedServicesNeverRestart() {
