@@ -80,7 +80,7 @@ struct ServiceDetailView: View {
                 chartSection(title: "CPU", subtitle: cpuSubtitle) {
                     MetricChart(points: points, markers: markers, value: \.cpu, threshold: status?.rule.cpuPercent,
                                 thresholdLabel: status.map { "\(Format.percent($0.rule.cpuPercent)) threshold" },
-                                domain: chartStart...windowEnd, yFloor: 5,
+                                domain: chartStart...windowEnd, yFloor: 5, tickUnit: { _ in 1 },
                                 format: { Format.percent($0) })
                 }
                 if status?.isEstimated == true {
@@ -93,6 +93,7 @@ struct ServiceDetailView: View {
                                 threshold: status?.rule.memoryLimitBytes.map(Double.init),
                                 thresholdLabel: status?.rule.memoryLimitBytes.map { "\(Format.bytes($0)) limit" },
                                 domain: chartStart...windowEnd, yFloor: 4 * 1024 * 1024,
+                                tickUnit: { $0 >= 1024 * 1024 * 1024 ? 1024 * 1024 * 1024 : 1024 * 1024 },
                                 format: { Format.bytes(UInt64(max(0, $0))) })
                 }
                 }
@@ -322,6 +323,8 @@ struct MetricChart: View {
     let domain: ClosedRange<Date>
     /// Smallest y-axis top, so near-zero series don't magnify noise.
     let yFloor: Double
+    /// Unit the y-axis ticks are rounded in, given the axis top (1 for %, MB or GB for memory).
+    let tickUnit: (Double) -> Double
     let format: (Double) -> String
 
     @State private var hover: Date?
@@ -397,7 +400,7 @@ struct MetricChart: View {
         .chartXScale(domain: domain)
         .chartYScale(domain: 0...yMax)
         .chartYAxis {
-            AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) { v in
+            AxisMarks(position: .leading, values: Self.niceTicks(top: yMax, unit: tickUnit(yMax))) { v in
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(Color.secondary.opacity(0.25))
                 AxisValueLabel {
                     if let d = v.as(Double.self) { Text(format(d)).font(.caption2) }
@@ -407,10 +410,26 @@ struct MetricChart: View {
         .chartXAxis {
             AxisMarks(values: .automatic(desiredCount: 6)) { _ in
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(Color.secondary.opacity(0.15))
-                AxisValueLabel().font(.caption2)
+                AxisValueLabel(format: xLabelFormat, collisionResolution: .greedy).font(.caption2)
             }
         }
         .chartXSelection(value: $hover)
+    }
+
+    /// Time of day for short ranges, dates beyond; short labels don't clip at the chart edge.
+    private var xLabelFormat: Date.FormatStyle {
+        domain.upperBound.timeIntervalSince(domain.lowerBound) <= 36 * 3600
+            ? .dateTime.hour().minute()
+            : .dateTime.month(.abbreviated).day()
+    }
+
+    /// Ticks at 1/2/2.5/5 × 10ⁿ multiples of `unit`, about four of them up to `top`.
+    static func niceTicks(top: Double, unit: Double) -> [Double] {
+        guard top > 0, unit > 0 else { return [0] }
+        let raw = top / unit / 4
+        let magnitude = pow(10, floor(log10(raw)))
+        let step = ([1, 2, 2.5, 5, 10].first { $0 * magnitude >= raw } ?? 10) * magnitude * unit
+        return stride(from: 0, through: top, by: step).map { $0 }
     }
 
     private func tooltip(_ p: MetricPoint) -> some View {

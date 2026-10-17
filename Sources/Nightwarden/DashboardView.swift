@@ -102,7 +102,8 @@ struct DashboardView: View {
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
             let flagged = model.statuses.filter { $0.health == .flagged }.count
-            Text(flagged == 0 ? "All watched services look healthy" : "\(flagged) service\(flagged == 1 ? "" : "s") look stuck")
+            Text(flagged == 0 ? "All watched services look healthy"
+                 : flagged == 1 ? "1 service looks stuck" : "\(flagged) services look stuck")
                 .font(.title2.weight(.semibold))
             Spacer()
             if let last = model.lastCheck {
