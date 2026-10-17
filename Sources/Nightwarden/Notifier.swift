@@ -13,6 +13,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     var onAction: (_ action: Action, _ service: String, _ pid: Int32) -> Void = { _, _, _ in }
     var onStatusChange: (UNAuthorizationStatus) -> Void = { _ in }
+    var onOpenUpdate: () -> Void = {}
 
     /// nil when running outside an app bundle (e.g. `swift run`), where the center would crash.
     private let center: UNUserNotificationCenter? =
@@ -66,6 +67,14 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         post("info.\(UUID().uuidString)", content)
     }
 
+    func postUpdate(_ release: GitHubRelease) {
+        let content = UNMutableNotificationContent()
+        content.title = "\(AppInfo.name) \(release.version?.description ?? release.tagName) is available"
+        content.body = "You have \(AppInfo.version). Click to see what's new."
+        content.userInfo = ["update": release.tagName]
+        post("update.\(release.tagName)", content)
+    }
+
     func postTest() {
         postInfo(title: "Nightwarden test", body: "Notifications work. Choose the Alerts style so stuck warnings stay on screen.")
     }
@@ -82,6 +91,7 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         let info = response.notification.request.content.userInfo
         let service = info["service"] as? String
         let pid = (info["pid"] as? Int).map(Int32.init) ?? 0
+        let isUpdate = info["update"] != nil
         let action: Action? = switch response.actionIdentifier {
         case "RESTART": .restart
         case "SNOOZE": .snooze
@@ -90,7 +100,11 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
         default: nil
         }
         Task { @MainActor in
-            if let action, let service { self.onAction(action, service, pid) }
+            if isUpdate {
+                self.onOpenUpdate()
+            } else if let action, let service {
+                self.onAction(action, service, pid)
+            }
             completionHandler()
         }
     }

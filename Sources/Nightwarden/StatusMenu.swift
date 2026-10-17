@@ -25,6 +25,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     var showWindow: (SidebarItem?) -> Void = { _ in }
     var restart: (_ service: String, _ pid: Int32) -> Void = { _, _ in }
     var checkNow: () -> Void = {}
+    var showAbout: () -> Void = {}
+    var checkForUpdates: () -> Void = {}
+    var showUpdate: () -> Void = {}
 
     init(model: AppModel) {
         self.model = model
@@ -56,6 +59,13 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             let text = until == .distantFuture ? "Alerts paused" : "Alerts paused until \(until.formatted(date: .omitted, time: .shortened))"
             menu.addItem(NSMenuItem(title: text, action: nil, keyEquivalent: ""))
         }
+        if let update = model.availableUpdate {
+            let item = ActionItem("Update Available: \(AppInfo.name) \(update.version?.description ?? update.tagName)…") { [weak self] in
+                self?.showUpdate()
+            }
+            item.image = NSImage(systemSymbolName: "arrow.down.circle", accessibilityDescription: nil)
+            menu.addItem(item)
+        }
         if let error = model.lastError {
             menu.addItem(NSMenuItem(title: "⚠︎ \(error)", action: nil, keyEquivalent: ""))
         }
@@ -83,6 +93,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
         menu.addItem(ActionItem("Dashboard…") { [weak self] in self?.showWindow(.overview) })
         menu.addItem(ActionItem("Settings…", key: ",") { [weak self] in self?.showWindow(.settings) })
+        menu.addItem(.separator())
+        menu.addItem(ActionItem("About \(AppInfo.name)") { [weak self] in self?.showAbout() })
+        menu.addItem(ActionItem("Check for Updates…") { [weak self] in self?.checkForUpdates() })
         menu.addItem(.separator())
         menu.addItem(ActionItem("Quit Nightwarden", key: "q") { NSApp.terminate(nil) })
     }

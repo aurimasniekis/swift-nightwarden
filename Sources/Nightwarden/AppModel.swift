@@ -48,12 +48,17 @@ final class AppModel: ObservableObject {
     @Published var selection: SidebarItem? = .overview
     @Published var notificationStatus: UNAuthorizationStatus = .notDetermined
     @Published var lastError: String?
+    @Published var availableUpdate: GitHubRelease?
+    @Published var checkingForUpdates = false
+    @Published var lastUpdateCheck: Date?
 
     // Wired up by AppDelegate.
     var restartAction: (_ service: String, _ pid: Int32) -> Void = { _, _ in }
     var checkNowAction: () -> Void = {}
     var testNotificationAction: () -> Void = {}
     var refreshNotificationStatusAction: () -> Void = {}
+    var checkForUpdatesAction: () -> Void = {}
+    var showUpdateAction: () -> Void = {}
 
     init(configStore: ConfigStore) {
         self.configStore = configStore

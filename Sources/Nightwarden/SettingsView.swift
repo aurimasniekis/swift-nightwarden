@@ -19,6 +19,8 @@ struct SettingsView: View {
 
 struct GeneralSettings: View {
     @EnvironmentObject var model: AppModel
+    @State private var loginStatus = LoginItem.status
+    @State private var loginError: String?
 
     private var paused: Binding<Bool> {
         Binding(get: { model.config.alertsPaused(at: Date()) },
@@ -69,6 +71,60 @@ struct GeneralSettings: View {
         Text("Choose the **Alerts** style in Notification Settings so stuck warnings stay on screen until you act on them.")
             .font(.caption)
             .foregroundStyle(.secondary)
+        loginRow
+        LabeledContent("Updates") {
+            HStack {
+                Toggle("Check automatically", isOn: $model.config.checkForUpdates)
+                    .toggleStyle(.checkbox)
+                Button(model.checkingForUpdates ? "Checking…" : "Check Now") { model.checkForUpdatesAction() }
+                    .disabled(model.checkingForUpdates)
+            }
+        }
+        Text(updateCaption)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder
+    private var loginRow: some View {
+        LabeledContent("Open at login") {
+            if LoginItem.managedByLaunchAgent {
+                Text("Managed by the LaunchAgent from make install").foregroundStyle(.secondary)
+            } else {
+                HStack {
+                    if loginStatus == .requiresApproval {
+                        Button("Approve in System Settings…") { LoginItem.openSystemSettings() }
+                    }
+                    Toggle("Open at login", isOn: Binding(
+                        get: { loginStatus == .enabled || loginStatus == .requiresApproval },
+                        set: { enabled in
+                            do {
+                                try LoginItem.setEnabled(enabled)
+                                loginError = nil
+                            } catch {
+                                loginError = error.localizedDescription
+                            }
+                            loginStatus = LoginItem.status
+                        }))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+            }
+        }
+        .onAppear { loginStatus = LoginItem.status }
+        if let loginError {
+            Text(loginError).font(.caption).foregroundStyle(Palette.critical)
+        }
+    }
+
+    private var updateCaption: String {
+        var text = "Looks for new releases on GitHub once a day. This is Nightwarden's only network request."
+        if let update = model.availableUpdate {
+            text += " Version \(update.version?.description ?? update.tagName) is available."
+        } else if let last = model.lastUpdateCheck {
+            text += " Last checked \(last.formatted(.relative(presentation: .named)))."
+        }
+        return text
     }
 
     private var statusText: String {

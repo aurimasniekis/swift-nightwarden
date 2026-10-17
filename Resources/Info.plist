@@ -31,7 +31,9 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSHumanReadableCopyright</key>
-	<string>Aurimas Niekis</string>
+	<string>© 2026 Aurimas Niekis. Released under the MIT License.</string>
+	<key>NightwardenRepository</key>
+	<string>aurimasniekis/swift-nightwarden</string>
 	<key>NSUserNotificationAlertStyle</key>
 	<string>alert</string>
 </dict>

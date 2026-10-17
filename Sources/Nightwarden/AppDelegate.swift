@@ -11,6 +11,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let restarter = Restarter()
     private var statusMenu: StatusMenu!
     private var window: MainWindowController!
+    private var about: AboutWindowController!
+    private let updateChecker = UpdateChecker()
+    private var updateTimer: Timer?
     private var timer: Timer?
     private var polling = false
     private var restarting = Set<Int32>()
@@ -18,20 +21,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var cancellables = Set<AnyCancellable>()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.mainMenu = Self.makeMainMenu()
         window = MainWindowController(model: model)
+        about = AboutWindowController(model: model)
+        NSApp.mainMenu = makeMainMenu()
         statusMenu = StatusMenu(model: model)
         statusMenu.showWindow = { [weak self] item in self?.window.show(item) }
         statusMenu.restart = { [weak self] service, pid in self?.requestRestart(service: service, pid: pid, confirm: true) }
         statusMenu.checkNow = { [weak self] in self?.poll() }
+        statusMenu.showAbout = { [weak self] in self?.about.show() }
+        statusMenu.checkForUpdates = { [weak self] in self?.checkForUpdates(interactive: true) }
+        statusMenu.showUpdate = { [weak self] in self?.showUpdateAlert() }
 
         model.restartAction = { [weak self] service, pid in self?.requestRestart(service: service, pid: pid, confirm: true) }
         model.checkNowAction = { [weak self] in self?.poll() }
         model.testNotificationAction = { [weak self] in self?.notifier.postTest() }
         model.refreshNotificationStatusAction = { [weak self] in self?.notifier.refreshStatus() }
+        model.checkForUpdatesAction = { [weak self] in self?.checkForUpdates(interactive: true) }
+        model.showUpdateAction = { [weak self] in self?.showUpdateAlert() }
+        model.lastUpdateCheck = updateChecker.lastCheck
 
         notifier.onStatusChange = { [weak self] status in self?.model.notificationStatus = status }
         notifier.onAction = { [weak self] action, service, pid in self?.handle(action, service: service, pid: pid) }
+        notifier.onOpenUpdate = { [weak self] in self?.showUpdateAlert() }
         notifier.setUp()
 
         model.$config.map(\.pollSeconds).removeDuplicates()
@@ -40,9 +51,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         if let i = CommandLine.arguments.firstIndex(of: "--show") {
             let page = CommandLine.arguments.indices.contains(i + 1) ? CommandLine.arguments[i + 1] : "overview"
-            window.show(Self.sidebarItem(page))
+            if page == "about" { about.show() } else { window.show(Self.sidebarItem(page)) }
         }
 
+        scheduleUpdateChecks()
         poll()
         // A second sample soon after launch so CPU rates show up without waiting a full interval.
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.poll() }
@@ -226,7 +238,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         a.runModal()
     }
 
-    /// `--show overview|events|settings|<service>` opens the window at launch.
+    /// `--show overview|events|settings|<service>` opens the window at launch (`--show about` the About window).
     private static func sidebarItem(_ page: String) -> SidebarItem {
         switch page {
         case "overview": return .overview
@@ -236,18 +248,95 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // MARK: Main menu (used while the dashboard window is open)
+    // MARK: Updates
 
-    private static func makeMainMenu() -> NSMenu {
+    /// Automatic checks: shortly after launch, then hourly ticks that only hit the network once a day.
+    private func scheduleUpdateChecks() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in self?.automaticUpdateCheck() }
+        let timer = Timer(timeInterval: 3600, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.automaticUpdateCheck() }
+        }
+        timer.tolerance = 300
+        RunLoop.main.add(timer, forMode: .common)
+        updateTimer = timer
+    }
+
+    private func automaticUpdateCheck() {
+        guard model.config.checkForUpdates, updateChecker.isDue else { return }
+        checkForUpdates(interactive: false)
+    }
+
+    /// `interactive` checks report every outcome; automatic ones only notify about a new version, once.
+    func checkForUpdates(interactive: Bool) {
+        guard !model.checkingForUpdates else { return }
+        model.checkingForUpdates = true
+        Task {
+            let result = await updateChecker.check()
+            model.checkingForUpdates = false
+            model.lastUpdateCheck = updateChecker.lastCheck
+            switch result {
+            case .available(let release):
+                model.availableUpdate = release
+                statusMenu.refresh()
+                if interactive {
+                    showUpdateAlert()
+                } else if updateChecker.shouldNotify(about: release) {
+                    notifier.postUpdate(release)
+                    updateChecker.markNotified(release)
+                }
+            case .upToDate(let latest):
+                model.availableUpdate = nil
+                if interactive {
+                    alert("You're up to date",
+                          latest == nil ? "No releases have been published yet."
+                                        : "\(AppInfo.name) \(AppInfo.version) is the latest version.")
+                }
+            case .failed(let message):
+                if interactive { alert("Couldn't check for updates", message) }
+            }
+        }
+    }
+
+    private func showUpdateAlert() {
+        guard let release = model.availableUpdate else {
+            checkForUpdates(interactive: true)
+            return
+        }
+        let a = NSAlert()
+        a.icon = NSApp.applicationIconImage
+        a.messageText = "\(AppInfo.name) \(release.version?.description ?? release.tagName) is available"
+        var text = "You have \(AppInfo.version)."
+        if let notes = release.notesExcerpt() { text += "\n\n" + notes }
+        a.informativeText = text
+        a.addButton(withTitle: "Download")
+        a.addButton(withTitle: "Release Notes")
+        a.addButton(withTitle: "Later")
+        bringToFront()
+        switch a.runModal() {
+        case .alertFirstButtonReturn: NSWorkspace.shared.open(release.downloadURL)
+        case .alertSecondButtonReturn: NSWorkspace.shared.open(release.htmlURL)
+        default: break
+        }
+    }
+
+    // MARK: Main menu (used while a window is open)
+
+    private func makeMainMenu() -> NSMenu {
         let main = NSMenu()
 
         let appMenu = NSMenu()
-        appMenu.addItem(withTitle: "About Nightwarden", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(ActionItem("About \(AppInfo.name)") { [weak self] in self?.about.show() })
+        appMenu.addItem(ActionItem("Check for Updates…") { [weak self] in self?.checkForUpdates(interactive: true) })
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Hide Nightwarden", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        appMenu.addItem(ActionItem("Settings…", key: ",") { [weak self] in self?.window.show(.settings) })
         appMenu.addItem(.separator())
-        appMenu.addItem(withTitle: "Quit Nightwarden", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-        main.addItem(submenu: appMenu, title: "Nightwarden")
+        appMenu.addItem(withTitle: "Hide \(AppInfo.name)", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h")
+        let hideOthers = appMenu.addItem(withTitle: "Hide Others", action: #selector(NSApplication.hideOtherApplications(_:)), keyEquivalent: "h")
+        hideOthers.keyEquivalentModifierMask = [.command, .option]
+        appMenu.addItem(withTitle: "Show All", action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Quit \(AppInfo.name)", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        main.addItem(submenu: appMenu, title: AppInfo.name)
 
         let edit = NSMenu(title: "Edit")
         edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
@@ -262,7 +351,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let windowMenu = NSMenu(title: "Window")
         windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         windowMenu.addItem(withTitle: "Minimize", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
+        windowMenu.addItem(.separator())
+        windowMenu.addItem(ActionItem("Dashboard") { [weak self] in self?.window.show(nil) })
         main.addItem(submenu: windowMenu, title: "Window")
+        NSApp.windowsMenu = windowMenu
+
+        let help = NSMenu(title: "Help")
+        help.addItem(ActionItem("\(AppInfo.name) on GitHub") { NSWorkspace.shared.open(AppInfo.repositoryURL) })
+        help.addItem(ActionItem("Release Notes") { NSWorkspace.shared.open(AppInfo.releasesURL) })
+        help.addItem(ActionItem("Report an Issue…") { NSWorkspace.shared.open(AppInfo.newIssueURL) })
+        main.addItem(submenu: help, title: "Help")
+        NSApp.helpMenu = help
         return main
     }
 }
